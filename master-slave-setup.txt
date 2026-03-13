@@ -1,0 +1,218 @@
+Use a Jenkins SSH agent on the second Ubuntu EC2, and keep it reachable only over the private IP 172.31.45.29, not the public IP. Jenkins agents need Java and network access to the controller, and Jenkins supports connecting agents over SSH.
+
+Recommended design
+
+Controller EC2: Jenkins server
+
+Agent EC2: Ubuntu machine that runs builds
+
+Connection type: Launch agents via SSH
+
+Network path: controller → agent over private IP
+
+Do not use 13.201.12.94 for Jenkins agent traffic unless you have no private routing option
+
+That is the safest simple setup for two EC2 machines in one VPC.
+
+1) Secure the AWS side first
+
+On the agent EC2 security group:
+
+Allow SSH port 22
+
+Source should be only the controller EC2 security group
+or at least the controller’s private IP
+
+Do not allow 0.0.0.0/0 on port 22 for Jenkins agent access
+
+On the controller EC2 security group:
+
+Keep Jenkins UI reachable only from your admin IP or VPN if possible
+
+Do not expose extra Jenkins ports you do not need
+
+Jenkins documents that it can expose multiple services and ports, so minimizing exposed network surface is important.
+
+2) Prepare the Ubuntu agent machine
+
+SSH into the agent EC2 and run:
+
+sudo apt update
+sudo apt install -y fontconfig openjdk-17-jre
+java -version
+
+Jenkins agents require Java, and current Jenkins guidance supports modern Java versions for agents.
+
+Then create a dedicated user for Jenkins builds:
+
+sudo adduser --disabled-password --gecos "" jenkins
+sudo usermod -aG sudo jenkins
+
+Create the agent work directory:
+
+sudo mkdir -p /home/jenkins/agent
+sudo chown -R jenkins:jenkins /home/jenkins/agent
+sudo chmod 755 /home/jenkins/agent
+
+If you do not want sudo for builds, skip usermod -aG sudo jenkins. That is safer.
+
+3) Create SSH key for controller → agent
+
+On the controller EC2:
+
+sudo -u jenkins ssh-keygen -t ed25519 -f /var/lib/jenkins/.ssh/jenkins_agent_ed25519 -N ""
+sudo chown -R jenkins:jenkins /var/lib/jenkins/.ssh
+sudo chmod 700 /var/lib/jenkins/.ssh
+sudo chmod 600 /var/lib/jenkins/.ssh/jenkins_agent_ed25519
+
+Show the public key:
+
+sudo cat /var/lib/jenkins/.ssh/jenkins_agent_ed25519.pub
+
+Copy that public key.
+
+4) Install the controller key on the agent
+
+On the agent EC2:
+
+sudo mkdir -p /home/jenkins/.ssh
+sudo nano /home/jenkins/.ssh/authorized_keys
+
+Paste the controller public key into authorized_keys, then set permissions:
+
+sudo chown -R jenkins:jenkins /home/jenkins/.ssh
+sudo chmod 700 /home/jenkins/.ssh
+sudo chmod 600 /home/jenkins/.ssh/authorized_keys
+
+Test from the controller:
+
+sudo -u jenkins ssh -i /var/lib/jenkins/.ssh/jenkins_agent_ed25519 jenkins@172.31.45.29
+
+If it logs in, exit.
+
+5) Add the SSH credential in Jenkins
+
+In Jenkins UI:
+
+Manage Jenkins → Credentials → System → Global credentials → Add Credentials
+
+Use:
+
+Kind: SSH Username with private key
+
+Username: jenkins
+
+Private Key: Enter directly
+
+Paste contents of:
+
+sudo cat /var/lib/jenkins/.ssh/jenkins_agent_ed25519
+
+Give it an ID like:
+
+ec2-agent-ssh-key
+
+6) Create the agent node in Jenkins
+
+Go to:
+
+Manage Jenkins → Nodes → New Node
+
+Use:
+
+Node name: ubuntu-agent-1
+
+Type: Permanent Agent
+
+Then configure:
+
+Remote root directory: /home/jenkins/agent
+
+Labels: ubuntu ec2
+
+Usage: Only build jobs with label expressions matching this node
+
+Launch method: Launch agents via SSH
+
+Host: 172.31.45.29
+
+Credentials: ec2-agent-ssh-key
+
+Recommended advanced settings:
+
+Host Key Verification Strategy:
+Prefer a real verification strategy, not “Non verifying”.
+Best practice is to trust a known host key you captured yourself.
+
+7) Verify SSH host key safely
+
+From the controller, collect the agent host key:
+
+sudo -u jenkins ssh-keyscan -H 172.31.45.29 >> /var/lib/jenkins/.ssh/known_hosts
+sudo chown jenkins:jenkins /var/lib/jenkins/.ssh/known_hosts
+sudo chmod 644 /var/lib/jenkins/.ssh/known_hosts
+
+Then use a verification strategy in Jenkins that checks the host key instead of blindly trusting it. That reduces MITM risk.
+
+8) Harden the agent SSH server
+
+On the agent EC2, edit:
+
+sudo nano /etc/ssh/sshd_config
+
+Set or confirm:
+
+PasswordAuthentication no
+PermitRootLogin no
+PubkeyAuthentication yes
+AllowUsers jenkins
+
+Then restart SSH:
+
+sudo systemctl restart ssh
+
+This keeps the box key-only and prevents root SSH login.
+
+9) Good safety practices for the agent
+
+Use these settings for a safer build node:
+
+Use a dedicated jenkins user
+
+Do not run builds as root
+
+Avoid giving full sudo unless the builds truly need it
+
+Restrict jobs to this node with labels
+
+Keep the agent in a private subnet if possible
+
+Use private IP communication only
+
+Keep Java and OS packages updated
+
+Put secrets in Jenkins Credentials, not in shell scripts
+
+For risky builds, run them inside Docker on the agent rather than directly on the host
+
+Jenkins agents are intentionally treated as less trusted execution machines, so limiting their permissions and isolating workloads is important.
+
+10) Quick test pipeline
+
+After the node connects, run a test Pipeline:
+
+pipeline {
+  agent { label 'ubuntu' }
+  stages {
+    stage('Test') {
+      steps {
+        sh 'whoami'
+        sh 'hostname'
+        sh 'java -version'
+        sh 'pwd'
+      }
+    }
+  }
+}
+
+You should see it run on the new agent.
