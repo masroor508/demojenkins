@@ -1,4 +1,4 @@
-Use a Jenkins SSH agent on the second Ubuntu EC2, and keep it reachable only over the private IP 172.31.45.29, not the public IP. Jenkins agents need Java and network access to the controller, and Jenkins supports connecting agents over SSH.
+Use a Jenkins SSH agent on the second Ubuntu EC2, and keep it reachable only over the private IP, not the public IP. Jenkins agents need Java and network access to the controller, and Jenkins supports connecting agents over SSH.
 
 Recommended design
 
