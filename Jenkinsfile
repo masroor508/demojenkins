@@ -1,6 +1,13 @@
 pipeline {
   agent any
   stages {
+    stage('Checkout Code') {
+      steps {
+        git branch: 'main',
+        credentialsId: 'github-token',
+        url: 'https://github.com/YOUR_USERNAME/YOUR_REPO.git'
+      }
+    }
     stage('Verify Files') {
       steps {
         sh '''echo "Checking project files..."
