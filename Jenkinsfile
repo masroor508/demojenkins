@@ -5,7 +5,7 @@ pipeline {
       steps {
         git branch: 'main',
         credentialsId: 'github-token',
-        url: 'https://github.com/YOUR_USERNAME/YOUR_REPO.git'
+        url: 'https://github.com/masroor508/demojenkins.git'
       }
     }
     stage('Verify Files') {
