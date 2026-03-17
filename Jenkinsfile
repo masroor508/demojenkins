@@ -12,9 +12,9 @@ test -f index.html'''
     stage('Deploy') {
       steps {
         sh '''echo "Deploying calculator app..."
-sudo mkdir -p ${DEPLOY_PATH}
-sudo cp index.html ${DEPLOY_PATH}/index.html
-sudo chmod -R 755 ${DEPLOY_PATH}'''
+mkdir -p ${DEPLOY_PATH}
+cp index.html ${DEPLOY_PATH}/index.html
+chmod -R 755 ${DEPLOY_PATH}'''
       }
     }
 
